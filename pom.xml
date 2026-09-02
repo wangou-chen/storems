@@ -13,6 +13,8 @@
   <!-- 新增包含的子项目 -->
   <modules>
     <module>eureka-service</module>
+    <module>product-service</module>
+    <module>product-client</module>
   </modules>
 
   <name>storems</name>

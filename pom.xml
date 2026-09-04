@@ -15,6 +15,7 @@
     <module>eureka-service</module>
     <module>product-service</module>
     <module>product-client</module>
+    <module>gateway-service</module>
   </modules>
 
   <name>storems</name>

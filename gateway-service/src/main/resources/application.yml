@@ -4,6 +4,7 @@ server:
 spring:
   application:
     name: gateway-service
+
   cloud:
     gateway:
       discovery:
@@ -12,6 +13,7 @@ spring:
           enabled: true
           # 小写 serviceId
           lower-case-service-id: true
+
       routes:
         - id: product-client
           uri: lb://product-client
@@ -20,9 +22,15 @@ spring:
           predicates:
             - Path=/product/**
 
+        - id: inventory-service
+          uri: lb://inventory-service
+          predicates:
+            - Path=/inventory/**
+
 eureka:
   instance:
     prefer-ip-address: true
+
   client:
     register-with-eureka: true
     fetch-registry: true

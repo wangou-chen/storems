@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import org.springframework.web.bind.annotation.PutMapping;
 
 /**
  * 商品的服务控制层
@@ -39,4 +40,18 @@ public class ProductController {
         log.info("------------OK    queryAllProduct----------------");
         return productList;
     }
+
+    @PutMapping("/updateStock/{productId}/{stock}")
+    public String updateStock(@PathVariable Long productId,
+                              @PathVariable Long stock) {
+
+        int result = productMapper.updateStock(productId, stock);
+
+        if (result > 0) {
+            return "success";
+        }
+
+        return "failed";
+    }
+
 }

@@ -17,6 +17,7 @@
     <module>product-client</module>
     <module>gateway-service</module>
       <module>inventory-service</module>
+      <module>user-service</module>
   </modules>
 
   <name>storems</name>

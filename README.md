@@ -1,414 +1,294 @@
-# storems
+﻿# storems · 仓序仓库管理系统
 
-云原生技术实践课程项目，基于 Spring Boot 与 Spring Cloud 构建的简易商城微服务示例。目前包含服务注册与发现、商品查询、库存出入库、服务间 Feign 调用、Gateway 路由以及简单的统一鉴权。
+一个用于课程实践的 Java 微服务仓库管理系统，包含可视化网页、用户注册登录、管理员用户管理、商品查询、库存出入库与流水追溯。
 
-> 本项目用于课程学习与微服务实践。当前鉴权仅判断请求参数 `token=1`，不适合直接用于生产环境。
+本文以 **Windows + IDEA + MySQL 8 + JDK 8** 为例，从空数据库开始运行。数据库和前后端均在本机运行，无需 Docker 或 Kubernetes。
 
-## 技术栈
-
-- JDK 8
-- Maven 3.x
-- MySQL 8.0.x
-- Spring Boot 2.0.9.RELEASE
-- Spring Cloud Finchley.SR2
-- Spring Cloud Netflix Eureka
-- Spring Cloud OpenFeign
-- Spring Cloud Gateway
-- MyBatis
-- Hystrix
-
-## 项目架构
-
-```text
-客户端
-  │
-  ▼
-gateway-service :9999
-  ├── /product/**   ──► product-client :8018 ──Feign──► product-service :8010 ──► tb_product
-  └── /inventory/** ──► inventory-service :8020 ──Feign──► product-service :8010
-                                                       └──► tb_inventory
-
-所有服务通过 eureka-service :8888 完成注册与发现。
-```
-
-## 模块说明
-
-| 模块 | 服务名 | 端口 | 作用 |
-| --- | --- | ---: | --- |
-| `eureka-service` | `eureka-server` | 8888 | Eureka 注册中心 |
-| `product-service` | `product-service` | 8010 | 商品数据查询和库存数量更新，连接 `tb_product` |
-| `product-client` | `product-client` | 8018 | 商品服务调用入口，通过 Feign 调用 `product-service` |
-| `inventory-service` | `inventory-service` | 8020 | 入库、出库和库存流水查询，连接 `tb_inventory`，并通过 Feign 调用 `product-service` |
-| `gateway-service` | `gateway-service` | 9999 | 对外统一入口、服务路由和简单 token 校验 |
-
-项目目录：
-
-```text
-storems/
-├── eureka-service/
-├── gateway-service/
-├── inventory-service/
-├── product-client/
-├── product-service/
-├── sql/
-│   └── init.sql
-├── pom.xml
-└── README.md
-```
-
-## 已实现功能
-
-- 基于 Eureka 的服务注册与发现
-- 查询全部商品、按 ID 查询商品
-- 商品表新增 `stock` 库存字段
-- `product-service` 提供库存更新接口
-- 商品入库和出库
-- 出库前校验商品是否存在、数量是否合法以及库存是否充足
-- 出入库成功后写入 `inventory_record` 流水表
-- `inventory-service` 通过 OpenFeign 调用 `product-service`
-- Gateway 配置商品服务与库存服务路由
-- Gateway 全局过滤器校验 `token=1`
-- `product-client` 的 Feign/Hystrix 降级示例
-
-## 环境要求
-
-请先安装并确认以下环境可用：
+## 1. 准备环境
 
 | 软件 | 要求 |
 | --- | --- |
-| 操作系统 | Windows（本文以 Windows + IntelliJ IDEA 为例） |
-| JDK | JDK 8 |
-| Maven | Maven 3.x |
-| MySQL | MySQL 8.0.x，默认端口 3306 |
-| IDE | IntelliJ IDEA |
+| JDK | **8**，IDEA 的 Project SDK、Maven Runner 和运行配置均使用 JDK 8 |
+| Maven | 3.x（本项目使用过 3.9.10），可使用 IDEA 配置的 Maven |
+| MySQL | **8.0**，安装并启动 MySQL Server，默认 3306 端口 |
+| Node.js | **22.12 或更高版本**，已验证 22.17 |
+| npm | 随 Node.js 安装 |
+| Git / IDEA | 用于获取代码和运行服务 |
 
-确认 Java 和 Maven 版本：
+PowerShell 检查：
 
 ```powershell
 java -version
 mvn -version
+mysql --version
+node --version
+npm.cmd --version
 ```
 
-`mvn -version` 显示的 Java 版本也应为 1.8。
+`mvn -version` 中的 Java 版本也必须为 1.8。命令找不到时，将对应软件的 bin 目录加入 PATH，或使用 IDEA / MySQL 安装目录里的工具。JAVA_HOME 应指向 JDK 根目录，不是 bin、java.exe 或 JRE。
 
-## 获取并导入项目
+## 2. 获取项目并导入
 
 ```powershell
-git clone https://github.com/wangou-chen/storems.git
+git clone --branch feat/inventory-service https://github.com/syt22/storems.git
 cd storems
 ```
 
-在 IntelliJ IDEA 中选择 **Open**，打开项目根目录下的 `pom.xml`，并以 Maven 项目导入。等待 Maven 下载全部依赖后再启动服务。
+当前完整代码位于 `feat/inventory-service` 分支；如果已经合并到默认分支，可省略 `--branch feat/inventory-service`。上游参考仓库为 `wangou-chen/storems`，可能不包含本项目新增功能。
 
-如 IDEA 使用的 JDK 不是 8，请检查：
+IDEA → Open → 选择仓库根目录的 `pom.xml`，按 Maven 项目导入。重新加载 Maven，等待依赖下载完成。在 Settings → Build, Execution, Deployment → Compiler → Annotation Processors 中启用注解处理，供已有 Lombok 实体和控制器使用。
 
-- Project SDK
-- Project language level
-- Maven Runner JRE
-- 各模块的 SDK
+```text
+storems/
+├── eureka-service/       注册中心
+├── gateway-service/      网关与登录凭证校验
+├── product-service/      商品数据库服务
+├── product-client/       商品调用服务与降级处理
+├── inventory-service/    库存业务与流水
+├── user-service/         注册、登录、管理员与用户管理
+├── frontend/             Vue 3 + Element Plus 网页
+├── sql/init.sql          首次运行：一次创建全部三个数据库
+├── sql/user.sql          可选：仅初始化用户库
+└── pom.xml               Maven 父工程
+```
 
-## 初始化数据库
+## 3. 初始化数据库
 
-仓库已经提供 `sql/init.sql`。首次运行前必须执行该文件，它会创建：
+**推荐使用 MySQL 命令行的 SOURCE，避免 Windows PowerShell 不支持 `<` 输入重定向的问题。**
 
-- `tb_product.product`：商品及当前库存
-- `tb_inventory.inventory_record`：出入库流水
-
-### 方法一：命令行导入
-
-在项目根目录执行：
+先在 PowerShell 登录 MySQL（输入安装 MySQL 时设置的密码）：
 
 ```powershell
-mysql -u root -p < sql/init.sql
+mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p
 ```
 
-如果 PowerShell 当前版本不支持上述重定向，可在 MySQL 客户端中执行：
+看到 `mysql>` 后执行，将路径换成你自己的仓库路径，使用正斜杠：
 
 ```sql
-source D:/你的项目路径/storems/sql/init.sql;
+SOURCE D:/Users/s1816/Desktop/云原生技术实践/storems/sql/init.sql;
 ```
 
-也可以使用 IDEA Database、MySQL Workbench 或 Navicat 打开并运行 `sql/init.sql`。
+也可以在 MySQL Workbench / Navicat 中打开 UTF-8 编码的 `sql/init.sql`，执行整个文件。执行路径带空格遇到问题时，优先使用数据库工具导入文件。
 
-### 初始化 SQL
+初始化结果：
 
-当前 `sql/init.sql` 的核心内容如下：
+| 数据库 | 表 | 内容 |
+| --- | --- | --- |
+| tb_product | product | 商品、价格、当前库存 |
+| tb_inventory | inventory_record | 入库和出库历史 |
+| tb_user | sys_user | 用户、密码哈希、角色、启用和逻辑删除状态 |
+| tb_user | user_token | Token 摘要、用户 ID 和过期时间 |
+
+在 MySQL 验证：
 
 ```sql
-CREATE DATABASE IF NOT EXISTS `tb_product`;
-USE `tb_product`;
-
-CREATE TABLE IF NOT EXISTS `product` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    `product_name` VARCHAR(100) DEFAULT NULL COMMENT '商品名称',
-    `price` DOUBLE(15,3) DEFAULT NULL COMMENT '商品价格',
-    `stock` INT NOT NULL DEFAULT 0 COMMENT '库存数量',
-    PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT INTO `product` (`product_name`, `price`, `stock`) VALUES
-    ('上衣', 100.00, 100),
-    ('裤子', 50.00, 80),
-    ('毛衣', 200.00, 50),
-    ('帽子', 30.00, 30),
-    ('鞋', 200.00, 60);
-
-CREATE DATABASE IF NOT EXISTS `tb_inventory`;
-USE `tb_inventory`;
-
-CREATE TABLE IF NOT EXISTS `inventory_record` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `product_id` BIGINT NOT NULL COMMENT '商品ID',
-    `type` VARCHAR(20) NOT NULL COMMENT 'INBOUND 或 OUTBOUND',
-    `quantity` INT NOT NULL COMMENT '入库/出库数量',
-    `operator` VARCHAR(100) DEFAULT NULL COMMENT '操作人',
-    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
-    PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SHOW TABLES FROM tb_product;
+SHOW TABLES FROM tb_inventory;
+SHOW TABLES FROM tb_user;
+SELECT id, product_name, price, stock FROM tb_product.product;
 ```
 
-> 注意：`CREATE DATABASE` 和 `CREATE TABLE` 可以重复执行，但示例 `INSERT` 会重复插入商品数据。数据库已经初始化后，不要再次执行插入部分；需要完全重置时，可先手动删除两个数据库再重新运行脚本。
+空库首次初始化包含上衣、裤子、毛衣、帽子、鞋共 5 种商品，库存依次为 100、80、50、30、60，共 **320 件**。流水表和用户表此时可以为空。示例商品使用 UTF-8 字节字面量，减少 Windows 终端编码造成的中文乱码。
 
-## 配置说明
+**脚本可顺序重复执行：**不删除数据库、不清空流水、不覆盖密码或库存；仅当商品表为空时插入示例商品，不重复插入。已有商品表缺少 stock 时会补充该列，旧商品库存默认 0，不会凭空补货。请不要并发执行初始化脚本。
 
-`product-service/src/main/resources/application.yml` 和 `inventory-service/src/main/resources/application.yml` 默认使用：
+`init.sql` 已包含 `user.sql` 的建表内容，首次使用只需执行 `init.sql`。仅补用户库时才单独执行 `user.sql`。`CREATE TABLE IF NOT EXISTS` 不会自动重建旧表，旧用户表的字段和索引升级由下一步用户服务启动时完成。
+
+## 4. 配置数据库连接
+
+需要修改以下 **三个文件**，不是只改一个：
+
+- `product-service/src/main/resources/application.yml` → tb_product
+- `inventory-service/src/main/resources/application.yml` → tb_inventory
+- `user-service/src/main/resources/application.yml` → tb_user
+
+仓库默认 MySQL 用户为 root、密码为 `123456`。如果你本机密码不同，请分别替换三个文件的 password；密码建议加双引号。示例（用户服务）：
 
 ```yaml
 spring:
+  application:
+    name: user-service
   datasource:
+    url: jdbc:mysql://127.0.0.1:3306/tb_user?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
-    password: 123456
+    password: "你的MySQL密码"
+    driver-class-name: com.mysql.jdbc.Driver
 ```
 
-如果本机 MySQL 用户名、密码、端口或时区不同，请修改两个服务各自的数据库连接配置。
+只修改对应 datasource 配置，保留各文件原有端口、服务名及 Eureka 配置。如果 MySQL 不是 3306 或不在本机，同时调整三个 URL。不要把三个服务都连接到 tb_user。
 
-默认数据库地址分别为：
+课程本地演示可以使用 root。使用独立数据库账号时，初始化需要建库、建表权限；业务需要 SELECT/INSERT/UPDATE/DELETE；用户服务启动升级旧表还需要 ALTER/INDEX 权限。不要提交个人数据库密码。
 
-```text
-jdbc:mysql://127.0.0.1:3306/tb_product
-jdbc:mysql://127.0.0.1:3306/tb_inventory
-```
+## 5. 用户表升级与默认管理员
 
-所有业务服务和网关默认连接以下 Eureka 地址：
+首次启动 user-service 会自动：
 
-```text
-http://localhost:8888/eureka
-```
+1. 为旧 sys_user 表补充 role、enabled、deleted、active_username 字段。
+2. 创建仅对未删除用户名生效的唯一索引，移除旧 username 或 `(username, deleted)` 唯一索引。
+3. 若没有未删除的 admin 账号，创建默认管理员，并使用 BCrypt 保存密码哈希。
 
-## 编译项目
+| 默认网站管理员 | 值 |
+| --- | --- |
+| 用户名 | **admin** |
+| 密码 | **adminadmin** |
 
-在项目根目录执行：
+这是**网站账号**，与 MySQL 的 root 密码无关。重启不会重置管理员密码，也不会覆盖已有数据。如存在同名普通账号，服务会明确报错，需人工处理冲突，不会自动将其升级为管理员。请等用户服务完全启动、无错误后再登录。已有数据库建议先备份，首次升级时只启动一个 user-service 实例。
+
+管理员可创建操作员、启用/禁用、重置密码、删除用户。公开注册一律创建操作员；操作员不能调用管理员接口。禁止禁用管理员，禁止删除管理员或自己。
+
+删除前需二次确认；删除是逻辑删除，历史流水保留。**未删除用户名（包括禁用账号）不能重复注册，已删除用户名可重新注册**，新账号使用新 ID。禁用、删除或重置密码会撤销该账号全部 Token；退出只撤销当前 Token。默认管理员可在用户管理页重置自己的密码，随后重新登录。
+
+## 6. 编译并启动 Java 服务
+
+仓库根目录执行：
 
 ```powershell
 mvn clean package -DskipTests
 ```
 
-也可以直接在 IDEA 的 Maven 工具窗口中执行根项目的 `clean` 和 `package`。
+第一次需要联网下载依赖。该命令只编译打包 Java，不构建网页。看到 BUILD SUCCESS 后在 IDEA 中按下表顺序启动，已运行的服务不要重复启动。
 
-## 启动顺序
+| 顺序 | 模块 | 启动类 | 端口 |
+| --- | --- | --- | --- |
+| 1 | eureka-service | EurekaServiceApplication | 8888 |
+| 2 | product-service | ProductServiceApplication | 8010 |
+| 3 | product-client | ProductClientApplication | 8018 |
+| 4 | user-service | UserServiceApplication | 8030 |
+| 5 | inventory-service | InventoryServiceApplication | 8020 |
+| 6 | gateway-service | GatewayServiceApplication | 9999 |
 
-建议严格按照以下顺序启动：
+MySQL 必须先启动。打开 http://localhost:8888，等待上述服务注册为 UP。每个服务控制台应出现 Started ...，用户服务还需确认初始化无异常。服务刚启动时注册信息可能尚未刷新，可稍等后重试查询。
 
-1. 启动 MySQL，并完成数据库初始化。
-2. 启动 `eureka-service`。
-3. 打开 <http://localhost:8888>，确认 Eureka 页面可访问。
-4. 启动 `product-service`。
-5. 启动 `product-client`。
-6. 启动 `inventory-service`。
-7. 回到 Eureka 页面，确认上述服务已经注册。
-8. 最后启动 `gateway-service`。
-
-在 IDEA 中分别运行各模块的启动类：
-
-```text
-EurekaServiceApplication
-ProductServiceApplication
-ProductClientApplication
-InventoryServiceApplication
-GatewayServiceApplication
-```
-
-如果网关提示 `Unable to find instance for product-client` 或 `Unable to find instance for inventory-service`，通常是网关启动时对应服务尚未注册。请确认 Eureka 页面中能够看到服务，随后重启网关。
-
-## Gateway 鉴权说明
-
-Gateway 的全局过滤器会检查 URL 查询参数 `token`，当前只有以下值可以通过：
-
-```text
-token=1
-```
-
-未携带 token 或值不为 `1` 时，网关返回 HTTP `401 Unauthorized`。
-
-这是课程项目中的临时鉴权方式。测试经 Gateway 暴露的任何接口时，都需要添加 `?token=1`；如果接口本身已有查询参数，则添加 `&token=1`。
-
-## 接口测试
-
-以下命令适用于 Windows PowerShell，均通过 Gateway 的 `9999` 端口访问。
-
-### 1. 查询全部商品
+也可在各自独立终端运行对应 jar，例如：
 
 ```powershell
-Invoke-RestMethod -Method Get -Uri "http://localhost:9999/product/queryAllProduct?token=1"
+java -jar user-service/target/user-service.jar
 ```
 
-也可以直接在浏览器访问：
+其他模块同理，实际 jar 文件名以 target 目录为准。Eureka 是注册中心页面，9999 是 API 网关，都不是管理网页地址。
 
-```text
-http://localhost:9999/product/queryAllProduct?token=1
-```
+## 7. 启动网页
 
-### 2. 按 ID 查询商品
+在另一个 PowerShell 中进入 **frontend** 目录：
 
 ```powershell
-Invoke-RestMethod -Method Get -Uri "http://localhost:9999/product/findByProductId/1?token=1"
+cd frontend
+npm.cmd ci --offline=false
+npm.cmd run dev
 ```
 
-### 3. 查询库存流水
+保持终端运行，在浏览器打开 **http://127.0.0.1:5173**。以 admin / adminadmin 登录即可看到“用户管理”；普通操作员只看到库存页面。网页开发服务器仅监听本机。
 
-按当前仓库的 Gateway 配置，库存路由未使用 `StripPrefix`，而 `InventoryController` 自身已有 `/inventory` 前缀，因此经网关访问时路径中需要出现两次 `inventory`：
+`package-lock.json` 已随源码提供，使用 npm ci 安装确定的依赖。没有 Node.js 时不能启动网页。开发请求使用 `/api` 前缀，Vite 自动转发到本机 9999 端口并移除前缀，无需改跨域配置。
+
+前端构建与依赖检查（仍在 frontend 目录）：
 
 ```powershell
-Invoke-RestMethod -Method Get -Uri "http://localhost:9999/inventory/inventory/records?token=1"
+npm.cmd run test:api
+npm.cmd run build
+npm.cmd audit --offline=false
 ```
 
-### 4. 商品入库
+构建产物位于 `frontend/dist/`。超过 500 kB 的 chunk 提示是体积提醒，不代表构建失败。`npm audit` 必须在 frontend 目录运行，否则可能报 ENOLOCK。审计结果以本次实际输出为准。
 
-以下请求将商品 `1` 入库 `10` 件，并记录操作人：
+## 8. 第一次验收
+
+1. 管理员登录，确认商品共 5 种（已有数据库按实际数据）。
+2. 商品库存页选上衣，记录当前库存，入库 10 再出库 10，最终应恢复原值。
+3. 流水应增加两条，操作人自动为当前登录用户，不能由表单伪造。
+4. 搜索商品、按类型和日期筛选流水，刷新浏览器应保持当前标签页的登录状态。
+5. 用户管理创建临时账号，同名创建应失败；禁用后无法登录，启用后可重新登录。
+6. 重置临时账号密码，旧密码失败、新密码成功。
+7. 删除弹窗取消时用户仍保留；确认删除后列表隐藏，再次注册同名账号应成功；重复删除、重新注册也应成功。
+8. 退出登录回到登录页。普通操作员不显示用户管理，也不能直接调用管理接口。
+
+网页请求失败会显示错误，不把缺失数据当成库存 0。点击刷新重试；503 需检查对应 Java 服务日志。
+
+## 9. API 与 PowerShell 排查
+
+所有下列路径均通过 Gateway `http://localhost:9999` 访问。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | /user/register | 匿名注册，JSON username/password |
+| POST | /user/login | 匿名登录，返回随机 Token，有效期 7200 秒 |
+| GET | /user/me | 当前用户 ID、用户名和角色 |
+| POST | /user/logout | 撤销当前 Token，返回 204 |
+| GET | /product/queryAllProduct | 商品列表 |
+| GET | /product/findByProductId/{id} | 商品详情 |
+| GET | /inventory/records | 库存流水 |
+| POST | /inventory/inbound?productId=1&quantity=10 | 入库 |
+| POST | /inventory/outbound?productId=1&quantity=10 | 出库 |
+| GET / POST | /user/admin/users | 管理员查询 / 创建操作员 |
+| PUT | /user/admin/users/{id}/enabled | 管理员设置状态，JSON enabled 布尔值 |
+| PUT | /user/admin/users/{id}/password | 管理员重置密码，JSON password |
+| DELETE | /user/admin/users/{id} | 管理员逻辑删除用户 |
+
+除注册、登录外需 `Authorization: Bearer <token>`；旧 `token=1` 已无效。401 表示凭证无效、过期或账号不可用；403 表示权限不足；409 表示用户名冲突；503 表示服务暂不可用。库存接口部分业务错误仍返回 HTTP 200 加字符串，网页已做对应处理。
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:9999/inventory/inventory/inbound?productId=1&quantity=10&operator=zhangsan&token=1"
+$body = @{ username = "admin"; password = "adminadmin" } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post -Uri "http://localhost:9999/user/login" -ContentType "application/json" -Body $body
+$headers = @{ Authorization = "Bearer $($login.token)" }
+Invoke-RestMethod -Uri "http://localhost:9999/user/me" -Headers $headers
+Invoke-RestMethod -Uri "http://localhost:9999/product/queryAllProduct" -Headers $headers
+Invoke-RestMethod -Uri "http://localhost:9999/inventory/records" -Headers $headers
 ```
 
-成功响应：
+库存路由保留 `/inventory` 前缀，不添加 StripPrefix。商品 `/product` 前缀由网关删除。内部 `/internal/auth/validate` 不配置网关公开路由。`POST /inventory/record` 已移除，流水仅由库存业务生成；出入库的 operator 来自登录身份，旧 operator 参数不再采信。
 
-```text
-success
-```
+## 10. 常见问题
 
-### 5. 商品出库
+| 现象 | 排查 |
+| --- | --- |
+| 数据库连接失败 / Access denied | 确认 MySQL 在运行，三个 datasource 的密码、端口和库名均正确 |
+| Unknown database / table does not exist | 先完整执行 sql/init.sql，再启动用户服务 |
+| 用户表 ALTER 权限不足 | 为用户服务数据库账号提供升级所需 ALTER/INDEX 权限 |
+| admin 登录失败 | 确认用户服务初始化成功；已有管理员密码不会因重启恢复默认 |
+| JAVA_HOME 错误 | 指向 JDK 8 根目录，并检查 Maven Runner JRE |
+| Lombok getter 或构造器编译错误 | IDEA 启用注解处理并重新加载 Maven |
+| 端口已被占用 | 停止同模块的旧实例后重启，勿重复运行 |
+| 页面首次出现 503 | 查看 Eureka 注册和商品/网关日志，等注册信息更新后刷新；持续失败时检查具体服务 |
+| 页面提示身份服务不可用 | 确认 user-service 正常，库存服务出入库会调用用户服务 |
+| 页面能打开但没有数据 | 保持 Vite 终端开启，确认 Gateway 9999 可达及全部业务服务运行 |
+| Token 过期或被撤销 | 重新登录；已禁用或删除账号不能通过重新登录恢复 |
+| npm audit 报 ENOLOCK | cd 到 storems/frontend，而不是 storems 根目录 |
+| 内存不足 | 降低各 Java 运行配置堆内存，例如 -Xms64m -Xmx256m，关闭无关应用 |
 
-以下请求将商品 `1` 出库 `5` 件：
+## 11. 测试、部署交接与已知限制
+
+Java 测试在仓库根目录运行 `mvn test`（首次需要联网获取测试插件）。前端请求测试在 frontend 运行 `npm.cmd run test:api`。可选浏览器模拟接口测试：
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:9999/inventory/inventory/outbound?productId=1&quantity=5&operator=zhangsan&token=1"
+# frontend 目录
+npx.cmd playwright install chromium
+npm.cmd test
 ```
 
-成功响应：
+浏览器测试使用模拟 API，不能替代真实数据库联调。人工验收按第 8 节执行。
 
-```text
-success
-```
+生产部署由部署同学处理：使用 `npm run build` 的 dist，Web 服务将同源 `/api/` 反向代理到 Gateway 并移除前缀，保留 Authorization 头；仅开放网页和网关，业务端口仅内部可达。`npm run preview` 不包含开发代理。不要在容器中把 localhost 当成其他容器的地址，需调整所有 MySQL/Eureka 地址。更多网页部署配置见 [frontend/README.md](frontend/README.md)。
 
-### 6. 测试库存不足
+当前限制：库存为先读后覆盖，并发时可能丢失更新；商品库存更新和流水插入没有分布式事务；流水只记录操作人用户名，同名重新注册后不能只凭名字区分历史账号；列表在前端筛选分页，适合课程演示规模；未定时清理过期 Token；正在处理中且已认证的请求不会因随后撤销 Token 被追溯取消。
 
-请求一个明显大于当前库存的出库数量：
+## 12. 提交与推送
+
+务必提交 `frontend/package-lock.json`、全部源码、sql 和 README。不要提交 node_modules、dist、target、个人数据库密码、IDEA 本机数据源文件或日志。
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:9999/inventory/inventory/outbound?productId=1&quantity=999999&operator=zhangsan&token=1"
+# 仓库根目录
+git status
+git diff --check
+git diff --stat
 ```
 
-预期响应：
-
-```text
-insufficient stock
-```
-
-库存不足时不会更新商品库存，也不会新增出库流水。
-
-### 7. 测试鉴权失败
+检查并选择需要的文件提交。已有仓库历史跟踪了部分 `.idea` 文件，忽略规则不会自动取消跟踪；不要把本机 IDE 配置改动混入业务提交。当前功能分支推送示例：
 
 ```powershell
-try {
-    Invoke-WebRequest -Uri "http://localhost:9999/product/queryAllProduct"
-} catch {
-    $_.Exception.Response.StatusCode.value__
-}
+git add README.md .gitignore pom.xml sql frontend user-service inventory-service product-client product-service gateway-service eureka-service
+git diff --cached --stat
+git commit -m "feat: 完善仓库管理网页、用户管理及初始化文档"
+git push -u origin feat/inventory-service
 ```
 
-预期状态码：
-
-```text
-401
-```
-
-### 直接访问库存服务（排查问题时使用）
-
-绕过 Gateway 后不需要 `token=1`：
-
-```text
-GET  http://localhost:8020/inventory/records
-POST http://localhost:8020/inventory/inbound?productId=1&quantity=10&operator=zhangsan
-POST http://localhost:8020/inventory/outbound?productId=1&quantity=5&operator=zhangsan
-```
-
-## 简化库存网关地址（建议）
-
-如果希望 README 和前端统一使用更自然的 `/inventory/records`、`/inventory/inbound` 和 `/inventory/outbound`，请为库存路由添加 `StripPrefix=1`：
-
-```yaml
-- id: inventory-service
-  uri: lb://inventory-service
-  filters:
-    - StripPrefix=1
-  predicates:
-    - Path=/inventory/**
-```
-
-修改并重启 `gateway-service` 后，库存接口可改为：
-
-```text
-GET  http://localhost:9999/inventory/records?token=1
-POST http://localhost:9999/inventory/inbound?productId=1&quantity=10&operator=zhangsan&token=1
-POST http://localhost:9999/inventory/outbound?productId=1&quantity=5&operator=zhangsan&token=1
-```
-
-## 常见问题
-
-### 服务未出现在 Eureka 中
-
-- 确认 `eureka-service` 已启动并能访问 <http://localhost:8888>。
-- 确认各服务的 `defaultZone` 指向 `http://localhost:8888/eureka`。
-- 等待数秒后刷新 Eureka 页面。
-- 确认对应端口没有被其他程序占用。
-
-### 数据库连接失败
-
-- 确认 MySQL 服务已启动并监听 3306 端口。
-- 确认 `tb_product` 和 `tb_inventory` 已创建。
-- 根据本机环境修改两个服务的数据库用户名和密码。
-- 确认 MySQL 允许当前用户从 `127.0.0.1` 登录。
-
-### 接口返回 401
-
-确认请求经过 Gateway 时携带了 `token=1`。直接访问业务服务端口时不经过该过滤器。
-
-### 库存接口返回 404
-
-当前代码经 Gateway 访问库存服务时需要使用 `/inventory/inventory/...`。如需使用 `/inventory/...`，请按照上文为库存路由添加 `StripPrefix=1`。
-
-## 当前实现说明
-
-- `inventory-service` 先调用 `product-service` 更新库存，再写入库存流水。目前两个数据库之间没有分布式事务；如果更新库存成功后写流水失败，两边数据可能不一致。
-- 当前库存更新方式为“先读取、再计算、再覆盖”，并发出入库时可能发生库存覆盖或超卖。
-- 接口目前以字符串表示结果，尚未统一响应结构和异常状态码。
-- 数据库账号密码直接写在本地配置文件中，仅适用于学习和本地开发。
-- Gateway 的 `token=1` 是演示鉴权，不代表真实用户身份。
-
-## TODO
-
-- 新增 `user-service`，实现用户注册、登录和真正的身份认证
-- 使用 JWT 或 Spring Security 替代固定的 `token=1`
-- 增加角色与接口权限控制
-- 统一 API 响应结构、参数校验和全局异常处理
-- 为库存扣减增加数据库原子更新或乐观锁，避免并发超卖
-- 引入事务消息、Saga 或其他方案保证跨服务数据一致性
-- 为 Feign 调用增加超时、重试、熔断与明确的降级响应
-- 使用环境变量或配置中心管理数据库账号等配置
-- 增加单元测试、集成测试和接口文档
-- 增加 Docker Compose，一键启动 MySQL 和全部服务
-- 统一并简化 Gateway 路由前缀
-
-## 说明
-
-本项目为教学示例，重点展示 Spring Cloud 微服务之间的注册发现、网关转发和服务调用流程。部署到生产环境前，还需要补充安全、事务一致性、并发控制、可观测性和自动化部署等能力。
+提交前核对实际分支名和远程仓库，示例不会替你执行 push。

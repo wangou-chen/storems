@@ -9,12 +9,17 @@ spring:
     gateway:
       discovery:
         locator:
-          # 开启以服务 id 去注册中心上获取转发地址
-          enabled: true
+          # 仅开放显式路由，避免暴露内部认证接口。
+          enabled: false
           # 小写 serviceId
           lower-case-service-id: true
 
       routes:
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/user/**
+
         - id: product-client
           uri: lb://product-client
           filters:

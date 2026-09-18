@@ -17,6 +17,11 @@
     <description>gateway-service</description>
 
     <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 核心网关依赖 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
